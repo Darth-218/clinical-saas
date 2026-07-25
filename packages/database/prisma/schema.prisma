@@ -160,6 +160,19 @@ enum AuditActionType {
   export
 }
 
+enum NotificationChannel {
+  sms
+  email
+  whatsapp
+}
+
+enum NotificationStatus {
+  queued
+  sent
+  failed
+  cancelled
+}
+
 // =====================================================================
 // 1. Core & System Administration
 // =====================================================================
@@ -181,6 +194,7 @@ model Clinic {
   logoUrl                  String?   @map("logo_url")
   timezone                 String    @default("Africa/Cairo")
   defaultCurrency          String    @default("EGP") @map("default_currency") @db.Char(3)
+  businessHours            Json?     @map("business_hours") // clinic-wide operating hours per day, distinct from per-doctor Schedule
   isActive                 Boolean   @default(true) @map("is_active")
   createdAt                DateTime  @default(now()) @map("created_at")
   updatedAt                DateTime  @updatedAt @map("updated_at")
@@ -199,6 +213,8 @@ model Clinic {
   serviceItems   ServiceItem[]
   invoices       Invoice[]
   payments       Payment[]
+  scheduleExceptions ScheduleException[]
+  notifications      Notification[]
 
   @@map("clinics")
 }
@@ -223,8 +239,9 @@ model Role {
 model User {
   userId                     String    @id @default(uuid()) @map("user_id") @db.Uuid
   authUserId                 String?   @unique @map("auth_user_id") @db.Uuid // nullable if not using Supabase Auth
-  clinicId                   String    @map("clinic_id") @db.Uuid
-  roleId                     String    @map("role_id") @db.Uuid
+  clinicId                   String?   @map("clinic_id") @db.Uuid // nullable = platform-level SaaS Admin, not scoped to one clinic
+  roleId                     String?   @map("role_id") @db.Uuid // nullable when isPlatformAdmin is true
+  isPlatformAdmin            Boolean   @default(false) @map("is_platform_admin")
   fullNameEn                 String    @map("full_name_en")
   fullNameAr                 String?   @map("full_name_ar")
   nationalId                 String?   @map("national_id") @db.VarChar(14)
@@ -242,8 +259,8 @@ model User {
   updatedAt                  DateTime  @updatedAt @map("updated_at")
   deletedAt                  DateTime? @map("deleted_at")
 
-  clinic               Clinic              @relation(fields: [clinicId], references: [clinicId], onDelete: Cascade)
-  role                 Role                @relation(fields: [roleId], references: [roleId])
+  clinic               Clinic?             @relation(fields: [clinicId], references: [clinicId], onDelete: Cascade)
+  role                 Role?               @relation(fields: [roleId], references: [roleId])
   auditLogs            AuditLog[]
   createdAppointments  Appointment[]       @relation("AppointmentCreatedBy")
   doctorAppointments   Appointment[]       @relation("AppointmentDoctor")
@@ -254,6 +271,10 @@ model User {
   uploadedDocuments    Document[]
   createdInvoices      Invoice[]
   receivedPayments     Payment[]
+  scheduleExceptions       ScheduleException[]     @relation("ScheduleExceptionUser")
+  createdScheduleExceptions ScheduleException[]    @relation("ScheduleExceptionCreatedBy")
+  passwordResetTokens  PasswordResetToken[]
+  refreshTokens        RefreshToken[]
 
   @@map("users")
 }
@@ -268,6 +289,10 @@ model Subscription {
   paymentGateway                 String?             @map("payment_gateway")
   paymentGatewayCustomerId       String?             @map("payment_gateway_customer_id")
   paymentGatewaySubscriptionId   String?             @map("payment_gateway_subscription_id")
+  paymentMethodBrand            String?             @map("payment_method_brand")
+  paymentMethodLast4            String?             @map("payment_method_last4") @db.VarChar(4)
+  paymentMethodExpMonth         Int?                @map("payment_method_exp_month")
+  paymentMethodExpYear          Int?                @map("payment_method_exp_year")
   status                         SubscriptionStatus  @default(trialing)
   trialEndsAt                    DateTime?           @map("trial_ends_at")
   currentPeriodStart             DateTime?           @map("current_period_start")
@@ -329,6 +354,9 @@ model Patient {
   emergencyContactPhone   String?   @map("emergency_contact_phone")
   insuranceProvider       String?   @map("insurance_provider")
   insurancePolicyNo       String?   @map("insurance_policy_no")
+  passwordHash            String?   @map("password_hash") // set only if patient activates self-service portal access
+  portalAccessEnabled     Boolean   @default(false) @map("portal_access_enabled")
+  emailVerifiedAt         DateTime? @map("email_verified_at")
   createdAt               DateTime  @default(now()) @map("created_at")
   updatedAt               DateTime  @updatedAt @map("updated_at")
   deletedAt               DateTime? @map("deleted_at")
@@ -341,6 +369,7 @@ model Patient {
   documents     Document[]
   invoices      Invoice[]
   payments      Payment[]
+  notifications Notification[]
 
   @@unique([clinicId, mrn])
   @@index([nationalId])
@@ -372,6 +401,7 @@ model Appointment {
   prescriptions Prescription[]
   documents     Document[]
   invoices      Invoice[]
+  notifications Notification[]
 
   @@index([patientId])
   @@index([doctorId])
@@ -400,6 +430,27 @@ model Schedule {
   @@map("schedules")
 }
 
+model ScheduleException {
+  exceptionId    String    @id @default(uuid()) @map("exception_id") @db.Uuid
+  clinicId       String    @map("clinic_id") @db.Uuid
+  userId         String    @map("user_id") @db.Uuid
+  exceptionDate  DateTime  @map("exception_date") @db.Date
+  startTime      DateTime? @map("start_time") @db.Time
+  endTime        DateTime? @map("end_time") @db.Time
+  isFullDayOff   Boolean   @default(false) @map("is_full_day_off")
+  reason         String?
+  createdBy      String?   @map("created_by") @db.Uuid
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  clinic        Clinic @relation(fields: [clinicId], references: [clinicId], onDelete: Cascade)
+  user          User   @relation("ScheduleExceptionUser", fields: [userId], references: [userId], onDelete: Cascade)
+  createdByUser User?  @relation("ScheduleExceptionCreatedBy", fields: [createdBy], references: [userId])
+
+  @@index([userId, exceptionDate])
+  @@map("schedule_exceptions")
+}
+
 // =====================================================================
 // 3. Clinical & EMR
 // =====================================================================
@@ -423,6 +474,9 @@ model Note {
   vitalsSpo2           Int?      @map("vitals_spo2")
   isFinalized          Boolean   @default(false) @map("is_finalized")
   signedAt             DateTime? @map("signed_at")
+  needsFollowUp        Boolean   @default(false) @map("needs_follow_up")
+  followUpDate         DateTime? @map("follow_up_date") @db.Date
+  followUpReason       String?   @map("follow_up_reason")
   createdAt            DateTime  @default(now()) @map("created_at")
   updatedAt            DateTime  @updatedAt @map("updated_at")
 
@@ -619,4 +673,57 @@ model Payment {
 
   @@index([invoiceId])
   @@map("payments")
+}
+
+// =====================================================================
+// 5. Auth & Notifications
+// =====================================================================
+
+model PasswordResetToken {
+  resetTokenId String   @id @default(uuid()) @map("reset_token_id") @db.Uuid
+  userId       String   @map("user_id") @db.Uuid
+  tokenHash    String   @map("token_hash") // store a hash, never the raw token
+  expiresAt    DateTime @map("expires_at")
+  usedAt       DateTime? @map("used_at")
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [userId], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("password_reset_tokens")
+}
+
+model RefreshToken {
+  refreshTokenId String    @id @default(uuid()) @map("refresh_token_id") @db.Uuid
+  userId         String    @map("user_id") @db.Uuid
+  tokenHash      String    @map("token_hash") // store a hash, never the raw token
+  expiresAt      DateTime  @map("expires_at")
+  revokedAt      DateTime? @map("revoked_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [userId], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}
+
+model Notification {
+  notificationId String              @id @default(uuid()) @map("notification_id") @db.Uuid
+  clinicId       String              @map("clinic_id") @db.Uuid
+  patientId      String              @map("patient_id") @db.Uuid
+  appointmentId  String?             @map("appointment_id") @db.Uuid
+  channel        NotificationChannel
+  status         NotificationStatus  @default(queued)
+  scheduledFor   DateTime            @map("scheduled_for")
+  sentAt         DateTime?           @map("sent_at")
+  failureReason  String?             @map("failure_reason")
+  createdAt      DateTime            @default(now()) @map("created_at")
+
+  clinic      Clinic       @relation(fields: [clinicId], references: [clinicId], onDelete: Cascade)
+  patient     Patient      @relation(fields: [patientId], references: [patientId], onDelete: Cascade)
+  appointment Appointment? @relation(fields: [appointmentId], references: [appointmentId])
+
+  @@index([clinicId])
+  @@index([status, scheduledFor])
+  @@map("notifications")
 }

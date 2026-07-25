@@ -30,6 +30,7 @@
 | logo_url | VARCHAR | nullable |
 | timezone | VARCHAR | default `Africa/Cairo` |
 | default_currency | VARCHAR(3) | default `EGP` |
+| business_hours | JSON | nullable — clinic-wide operating hours per day (UC-3.2), distinct from individual doctor `Schedule` rows; e.g. `{"sunday": {"open":"09:00","close":"21:00"}, "friday": {"closed": true}, ...}` |
 | is_active | BOOLEAN | |
 | created_at / updated_at | TIMESTAMP | |
 
@@ -37,8 +38,9 @@
 | Attribute | Type | Notes |
 |---|---|---|
 | user_id | UUID (PK) | |
-| clinic_id | UUID (FK) | |
-| role_id | UUID (FK) | |
+| clinic_id | UUID (FK) | **nullable** — null = platform-level SaaS Admin who operates across all tenants, not scoped to one clinic |
+| role_id | UUID (FK) | nullable when `is_platform_admin` is true (platform admins bypass clinic-scoped roles) |
+| is_platform_admin | BOOLEAN | default false — flags SaaS Admins (UC-2.1–2.3); app logic + RLS must treat these specially since they aren't clinic-isolated |
 | full_name_en | VARCHAR | |
 | full_name_ar | VARCHAR | |
 | national_id | VARCHAR(14) | 🇪🇬 Egyptian National ID — validate checksum + extract DOB/gender from it |
@@ -77,6 +79,10 @@
 | payment_gateway | VARCHAR | 🇪🇬 likely `Paymob`, `Fawry`, or `Stripe` if billing internationally |
 | payment_gateway_customer_id | VARCHAR | |
 | payment_gateway_subscription_id | VARCHAR | |
+| payment_method_brand | VARCHAR | nullable — e.g. "Visa", "Mastercard", for display only (UC-3.6) |
+| payment_method_last4 | VARCHAR(4) | nullable — last 4 digits of the card on file, for display only; never store full card numbers |
+| payment_method_exp_month | INT | nullable |
+| payment_method_exp_year | INT | nullable |
 | status | ENUM | trialing / active / past_due / cancelled / suspended |
 | trial_ends_at | TIMESTAMP | nullable |
 | current_period_start | TIMESTAMP | |
@@ -126,6 +132,9 @@
 | emergency_contact_phone | VARCHAR | nullable |
 | insurance_provider | VARCHAR | nullable — 🇪🇬 e.g. GIG, Allianz, or Egyptian national health insurance |
 | insurance_policy_no | VARCHAR | nullable |
+| password_hash | VARCHAR | nullable — set only if patient activates self-service portal access (UC-6.1–6.3) |
+| portal_access_enabled | BOOLEAN | default false — whether this patient has registered for the portal |
+| email_verified_at | TIMESTAMP | nullable |
 | created_at / updated_at / deleted_at | TIMESTAMP | |
 
 ### Appointment
@@ -162,6 +171,22 @@
 | is_active | BOOLEAN | |
 | created_at / updated_at | TIMESTAMP | |
 
+### ScheduleException
+One-off deviations from a doctor's recurring `Schedule` — vacations, sick days, or ad-hoc blocked hours (UC-3.4). Booking logic must check this table in addition to `Schedule` before offering a slot.
+
+| Attribute | Type | Notes |
+|---|---|---|
+| exception_id | UUID (PK) | |
+| clinic_id | UUID (FK) | |
+| user_id | UUID (FK) | doctor/staff this exception applies to |
+| exception_date | DATE | the specific date affected |
+| start_time | TIME | nullable — if null alongside `is_full_day_off`, the entire day is blocked |
+| end_time | TIME | nullable |
+| is_full_day_off | BOOLEAN | default false |
+| reason | VARCHAR | nullable, e.g. "Annual leave", "Conference" |
+| created_by | UUID (FK → User) | |
+| created_at / updated_at | TIMESTAMP | |
+
 ---
 
 ## 3. Clinical & EMR
@@ -187,6 +212,9 @@
 | vitals_spo2 | INT | nullable |
 | is_finalized | BOOLEAN | locks record from edits once signed |
 | signed_at | TIMESTAMP | nullable |
+| needs_follow_up | BOOLEAN | default false — flags the receptionist queue for a follow-up booking (UC-5.6) |
+| follow_up_date | DATE | nullable — suggested target date for the follow-up |
+| follow_up_reason | TEXT | nullable |
 | created_at / updated_at | TIMESTAMP | |
 
 ### PatientCondition
@@ -325,6 +353,50 @@ One row per medication on a `Prescription` (1—N relationship: a single prescri
 
 ---
 
+## 5. Auth & Notifications
+
+### PasswordResetToken
+Supports UC-1.3 (secure password reset). Applies to `User` records; extend to `Patient` too if the patient portal ships in this phase.
+
+| Attribute | Type | Notes |
+|---|---|---|
+| reset_token_id | UUID (PK) | |
+| user_id | UUID (FK) | |
+| token_hash | VARCHAR | store a hash of the token, never the raw token |
+| expires_at | TIMESTAMP | typically 15–60 minutes from creation |
+| used_at | TIMESTAMP | nullable — set once the token has been consumed, prevents reuse |
+| created_at | TIMESTAMP | |
+
+### RefreshToken
+Only needed if you want genuine server-side session invalidation on logout (UC-1.2). If you go with short-lived access tokens only and accept client-side logout as sufficient, this table can be skipped for MVP.
+
+| Attribute | Type | Notes |
+|---|---|---|
+| refresh_token_id | UUID (PK) | |
+| user_id | UUID (FK) | |
+| token_hash | VARCHAR | store a hash, never the raw token |
+| expires_at | TIMESTAMP | |
+| revoked_at | TIMESTAMP | nullable — set on logout or forced invalidation |
+| created_at | TIMESTAMP | |
+
+### Notification
+Tracks queued/sent/failed patient reminders (UC-7.1) so the background job doesn't double-send and delivery is auditable.
+
+| Attribute | Type | Notes |
+|---|---|---|
+| notification_id | UUID (PK) | |
+| clinic_id | UUID (FK) | |
+| patient_id | UUID (FK) | |
+| appointment_id | UUID (FK) | nullable — most reminders are appointment-triggered |
+| channel | ENUM | sms / email / whatsapp |
+| status | ENUM | queued / sent / failed / cancelled |
+| scheduled_for | TIMESTAMP | when the reminder should fire (e.g. 24h before appointment) |
+| sent_at | TIMESTAMP | nullable |
+| failure_reason | TEXT | nullable |
+| created_at | TIMESTAMP | |
+
+---
+
 ## Key Egypt-specific design decisions to flag for your team
 
 1. **National ID (14-digit)**: encodes birth century, birth date, governorate code, gender, and a checksum digit. Worth writing a validator/parser utility — you can auto-derive `date_of_birth` and `gender` from it and cross-check against user input.
@@ -339,10 +411,23 @@ One row per medication on a `Prescription` (1—N relationship: a single prescri
 
 ## Suggested relationships (ER summary)
 - `Clinic` 1—N `User`, `Patient`, `ServiceItem`, `Subscription` (1—1 or 1—N if plan history matters)
-- `User` N—1 `Role`
-- `Patient` 1—N `Appointment`, `PatientCondition`, `Document`, `Invoice`
+- `User` N—1 `Role` (nullable for platform admins)
+- `User` 1—N `Schedule`, `ScheduleException`, `PasswordResetToken`, `RefreshToken`
+- `Patient` 1—N `Appointment`, `PatientCondition`, `Document`, `Invoice`, `Notification`
 - `Appointment` 1—1 `Note` (typically), 1—N `Prescription`
 - `Prescription` 1—N `PrescriptionItem`
 - `Invoice` 1—N `InvoiceLineItem`, 1—N `Payment`
 - `InvoiceLineItem` N—1 `ServiceItem`
 - `AuditLog` references any entity polymorphically via `entity_type` + `entity_id`
+
+### Notes on the additions above
+These nine changes close the gaps found when cross-referencing against `use-cases.md`:
+1. `Patient` gained portal auth fields (UC-6.x)
+2. `User.clinic_id`/`role_id` made nullable + `is_platform_admin` flag (UC-2.x)
+3. `Note` gained follow-up flagging fields (UC-5.6)
+4. New `Notification` table (UC-7.1)
+5. New `PasswordResetToken` table (UC-1.3)
+6. New `RefreshToken` table (UC-1.2, optional for MVP)
+7. New `ScheduleException` table (UC-3.4)
+8. `Clinic` gained `business_hours` (UC-3.2)
+9. `Subscription` gained displayable payment-method fields (UC-3.6)
