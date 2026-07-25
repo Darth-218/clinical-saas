@@ -12,8 +12,8 @@
     in {
       devShells.${system}.default = pkgs.mkShell {
         buildInputs = with pkgs; [
-          nodejs_20
-          nodePackages.pnpm
+          nodejs_22
+          pnpm
           docker-compose
           openssl
           prisma-engines
