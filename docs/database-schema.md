@@ -1,7 +1,7 @@
 # Clinic Management System — MVP Data Dictionary
 **Context:** Multi-tenant SaaS for Egyptian clinics
 **Conventions used below:**
-- All tables include `clinic_id` (FK) for tenant isolation, except `AuditLog`/`Role` where noted.
+- All tables include `clinic_id` (FK) for tenant isolation, except `Role` where noted (its `clinic_id` is nullable for system-level roles).
 - All tables include `created_at`, `updated_at` (timestamps). Soft-delete tables also get `deleted_at`.
 - All primary keys are UUIDs (safer than auto-increment ints in multi-tenant systems — avoids ID collision/enumeration).
 - Money fields: `DECIMAL(10,2)`, currency default `EGP`.
@@ -341,7 +341,7 @@ One row per medication on a `Prescription` (1—N relationship: a single prescri
 - `Clinic` 1—N `User`, `Patient`, `ServiceItem`, `Subscription` (1—1 or 1—N if plan history matters)
 - `User` N—1 `Role`
 - `Patient` 1—N `Appointment`, `PatientCondition`, `Document`, `Invoice`
-- `Appointment` 1—1 `Note` (typically), 1—N `Prescription`
+- `Appointment` 1—N `Note`, 1—N `Prescription`
 - `Prescription` 1—N `PrescriptionItem`
 - `Invoice` 1—N `InvoiceLineItem`, 1—N `Payment`
 - `InvoiceLineItem` N—1 `ServiceItem`

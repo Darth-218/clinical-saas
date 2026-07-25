@@ -64,7 +64,7 @@ A `.env` file already exists at the project root. Verify it contains:
 DATABASE_URL="postgresql://postgres:password@localhost:5432/clinical_saas?schema=public"
 ```
 
-Once the `packages/database` package has a Prisma schema, copy this file into it:
+Copy this file into the database package (required for Prisma to resolve the connection string):
 
 ```bash
 cp .env packages/database/.env
@@ -78,7 +78,7 @@ pnpm install
 
 This installs dependencies for every workspace package (`apps/web`, `apps/api`, `packages/database`) and links internal workspace references.
 
-### 6. Initialize the database (once a schema exists)
+### 6. Initialize the database
 
 ```bash
 pnpm --filter @repo/database generate

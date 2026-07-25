@@ -16,7 +16,7 @@ This repository contains the monorepo for the multi-tenant clinical management p
 Before contributing, ensure your local development environment has the following installed:
 
 * **Node.js:** v18.0.0 or higher
-* **pnpm:** v8.0.0 or higher (Install via `npm install -g pnpm`)
+* **pnpm:** v9.0.0 or higher (Install via `npm install -g pnpm`)
 * **Docker:** Required for running the local PostgreSQL database
 
 > **Note for NixOS Developers:** This repository includes a `flake.nix` file. Run `nix develop` at the project root to load your environment. This automatically configures native bindings for the Prisma engine binaries to prevent execution errors.
@@ -94,7 +94,7 @@ Once the development servers are running, you can access the services at the fol
 
 ## 📁 Monorepo Structure
 
-This project uses npm workspaces to separate concerns while sharing core logic.
+This project uses pnpm workspaces to separate concerns while sharing core logic.
 
 * `apps/web`: The Next.js frontend application. All UI components, pages, and client-side logic live here.
 * `apps/api`: The NestJS backend application. It handles the REST endpoints, business logic, authorization, and multi-tenant data isolation.

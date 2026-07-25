@@ -66,14 +66,14 @@ Examples:
 
 ### TypeScript
 
-- Strict mode is enabled across all packages.
+- Strict mode is enabled in the web package. The API package uses relaxed settings (`strictNullChecks: false`) during the scaffolding phase.
 - Prefer explicit types over `any`.
 - Use the `workspace:*` protocol for internal dependencies.
 
 ### React (apps/web)
 
 - Use functional components with hooks.
-- Place components in `components/` within the web app.
+- Place components in `src/components/` within the web app.
 - Use Tailwind utility classes for styling.
 
 ### NestJS (apps/api)

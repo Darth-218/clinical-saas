@@ -24,7 +24,7 @@ The platform owner operates across all tenants and manages the infrastructure la
 
 | ID | Use Case | Description |
 |----|----------|-------------|
-| UC-2.1 | Provision Tenant | Create a new isolated workspace database instance for a newly registered clinic. |
+| UC-2.1 | Provision Tenant | Provision a new tenant record and apply default configuration for a newly registered clinic. All tenants share a single PostgreSQL database with row-level `clinic_id` isolation. |
 | UC-2.2 | Manage Tenant Status | Suspend, activate, or terminate a clinic's access based on subscription or policy violations. |
 | UC-2.3 | View Platform Analytics | Monitor overarching system health, total active clinics, and global error logs. |
 

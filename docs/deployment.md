@@ -96,7 +96,7 @@ services:
   api:
     build:
       context: .
-      dockerfile: apps/api/Dockerfile
+      dockerfile: apps/api/Dockerfile  # Not yet created — see Dockerfile templates above
     ports:
       - "3001:3001"
     environment:
@@ -108,7 +108,7 @@ services:
   web:
     build:
       context: .
-      dockerfile: apps/web/Dockerfile
+      dockerfile: apps/web/Dockerfile  # Not yet created — see Dockerfile templates above
     ports:
       - "3000:3000"
     environment:

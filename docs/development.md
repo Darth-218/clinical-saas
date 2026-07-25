@@ -78,7 +78,7 @@ pnpm --filter @repo/api lint
 
 ## Database workflows
 
-Once a Prisma schema exists in `packages/database/prisma/schema.prisma`:
+Run the following Prisma commands from the `packages/database` directory:
 
 ```bash
 # Generate the Prisma client

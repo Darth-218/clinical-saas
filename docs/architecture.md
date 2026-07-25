@@ -76,8 +76,8 @@ Modules for auth, patients, appointments, and tenancy will be added under `src/`
 ## Database (`packages/database`)
 
 - **ORM:** Prisma with PostgreSQL.
-- **Schema location:** `prisma/schema.prisma` (to be added).
-- **Generated client:** Output to `node_modules/.prisma/client` and re-exported from `index.ts`.
+- **Schema location:** `prisma/schema.prisma`.
+- **Generated client:** Output to `node_modules/.prisma/client`. Consumers import directly from `@prisma/client`.
 
 Both `@repo/web` and `@repo/api` import the Prisma client and generated types from this package, ensuring a single source of truth for data models.
 

@@ -52,8 +52,6 @@ The schema file will be located at:
 packages/database/prisma/schema.prisma
 ```
 
-> The schema is intentionally left empty at this stage. Models will be defined once the domain requirements are finalized.
-
 ### Adding models
 
 1. Define your model in `schema.prisma`.
@@ -90,7 +88,7 @@ const prisma = new PrismaClient();
 const users = await prisma.user.findMany();
 ```
 
-The `@repo/database` package re-exports the generated `PrismaClient` and all model types.
+The `@repo/database` package provides the Prisma schema. To use the client, import directly from `@prisma/client` after running `pnpm --filter @repo/database generate`.
 
 ---
 
